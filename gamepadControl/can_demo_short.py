@@ -74,8 +74,17 @@ joystick.init()
 print(f"Name of joystick: {joystick.get_name()}")
 
 # invert kinematic using ikpy (such wow)
-myChain = ikpy.chain.Chain.from_urdf_file("arctos.urdf")
+####################################################
+# Get folder where this script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Build full path to URDF file
+urdf_path = os.path.join(script_dir, "arctos.urdf")
+
+# Load the chain
+myChain = ikpy.chain.Chain.from_urdf_file(urdf_path)
+#myChain = ikpy.chain.Chain.from_urdf_file("arctos.urdf")
+#####################################################
 
 # -------------------------------------------CAN section -------------------------------------------------------
 
@@ -509,7 +518,7 @@ async def main() -> None:
     async def updateRobot():
         global rawAxisArr, positionQueue
         # real bus
-        bus = can.interface.Bus(interface="slcan", channel="/dev/ttyACM0", bitrate=500000)
+        bus = can.interface.Bus(bustype='slcan', channel='COM6', bitrate=500000)
         # virtual bus
         # bus = can.interface.Bus(interface="virtual", receive_own_messages=True)  
 
