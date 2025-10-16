@@ -30,7 +30,7 @@ import threading
 # INitialize input values
 DEBUG = True
 
-buffer = [0, 0, 0, 0, 0, 0]
+buffer = [0, 0, 0, 0, 0, 0, 0]
 specialKey = [False, False, False, False]
 newValue = False
 
@@ -49,9 +49,11 @@ def handle_button_release(button, buffer, specialKey):
     elif button == 2:
         printDebugInput("Button ▢ released")
         specialKey[button] = False
+        buffer[6] = 0
     elif button == 3:
         printDebugInput("Button △ released")
         specialKey[button] = False
+        buffer[6] = 0
     elif button == 6:
         printDebugInput("Left bumper released")
     elif button == 7:
@@ -99,25 +101,24 @@ def handle_axis_motion(axis, value, buffer):
         elif value >= -0.2 and value <= 0.2: buffer[1] = 0
     elif axis == 2:  # X-axis of the right stick
         printDebugInput(f"Right stick X-axis moved to {value}")
-        
+        # up
+        if value >= -1.1 and value < -0.9:
+            buffer[3] = -1
+        # down
+        elif value > 0.9 and value <=1.1:
+            buffer[3] = 1
+        elif value >= -0.2 and value <= 0.2: buffer[3] = 0
     elif axis == 3:  # Y-axis of the right stick
         printDebugInput(f"Right stick Y-axis moved to {value}")
         #left
         if value >= -1.1 and value < -0.9:
-            buffer[3] = 1
+            buffer[2] = 1
         #right
         elif value > 0.9 and value <=1.1:
-            buffer[3] = -1
-        elif value >= -0.2 and value <= 0.2: buffer[3] = 0
+            buffer[2] = -1
+        elif value >= -0.2 and value <= 0.2: buffer[2] = 0
     elif axis == 4:  # Left trigger (L2)
         printDebugInput(f"Left trigger (L2) value: {value}")
-        # up
-        if value >= -1.1 and value < -0.9:
-            buffer[2] = -1
-        # down
-        elif value > 0.9 and value <=1.1:
-            buffer[2] = 1
-        elif value >= -0.2 and value <= 0.2: buffer[2] = 0
     elif axis == 5:  # Right trigger (R2)
         printDebugInput(f"Right trigger (R2) value: {value}")
     elif axis == 6:  # D-pad X-axis
@@ -137,9 +138,11 @@ def handle_button_press(button, buffer, specialKey):
     elif button == 2:
         printDebugInput("Button ▢ pressed")
         specialKey[button] = True
+        buffer[6] = 1
     elif button == 3:
         printDebugInput("Button △ pressed")
         specialKey[button] = True
+        buffer[6] = -1
     elif button == 6:
         printDebugInput("Left bumper pressed")
     elif button == 7:

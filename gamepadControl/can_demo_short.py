@@ -48,7 +48,13 @@ axisChangedCommon = False
 speed = 20
 oldSpeed = speed
 
-
+gripperPosition = 220
+GRIPPER_CAN_ID = 0x07
+GRIPPER_MIN = 0   # Close
+GRIPPER_MAX = 120   # Open
+GRIPPER_STEP = 5   # units per tick
+GRIPPER_PERIOD = 0.05  # seconds between ticks (~50 Hz)
+gripper_dir = 0     # -1 closing, 0 idle, +1 opening
 # -------------------------------------------------------------------- CONTROLLER GLOBAL VARIABLES--------------------------------------------------------------------
 isStoppedBufferController = [True, True, True, True, True, True]
 
@@ -471,12 +477,67 @@ def setJointsValue():
             print(f"Processing position {axisArray}")
             return True
 
+async def gripperTask(bus: can.interface.Bus):
+    """
+    Drives the gripper position while a button is held.
+    - Moves toward GRIPPER_MAX when gripper_dir = +1
+    - Moves toward GRIPPER_MIN when gripper_dir = -1
+    - Sends nothing when gripper_dir = 0
+    - Sends a CAN frame only when the position actually changes
+    - Prints a debug message ONCE when limit reached
+    """
+    global gripper_dir, gripperPosition
+
+    # Send initial gripper position once
+    # try:
+    #     bus.send(can.Message(
+    #         arbitration_id=GRIPPER_CAN_ID,
+    #         data=[int(gripperPosition)],
+    #         is_extended_id=False
+    #     ))
+    #     print(f"[Gripper Init] Sent initial position: {gripperPosition}")
+    # except Exception as e:
+    #     print(f"Initial gripper send failed: {e}")
+
+    limit_warning_shown = False  # Prevent spamming debug at limits
+
+    while True:
+        dir_now = gripper_dir  # snapshot
+
+        # --- Compute new position based on direction ---
+        new_pos = gripperPosition
+        if dir_now > 0 and gripperPosition < GRIPPER_MAX:
+            new_pos = min(GRIPPER_MAX, gripperPosition + GRIPPER_STEP)
+            limit_warning_shown = False  # Reset warning when movement resumes
+        elif dir_now < 0 and gripperPosition > GRIPPER_MIN:
+            new_pos = max(GRIPPER_MIN, gripperPosition - GRIPPER_STEP)
+            limit_warning_shown = False
+        else:
+            # If trying to move beyond range, only print debug ONCE
+            if dir_now != 0 and not limit_warning_shown:
+                print(f"[DEBUG] Gripper limit reached at {gripperPosition}")
+                limit_warning_shown = True
+
+        # --- Send only if value actually changed ---
+        if new_pos != gripperPosition:
+            gripperPosition = new_pos
+            try:
+                bus.send(can.Message(
+                    arbitration_id=GRIPPER_CAN_ID,
+                    data=[int(gripperPosition)],
+                    is_extended_id=False
+                ))
+                print(f"[Gripper] Moved to: {gripperPosition}")  # Optional debug
+            except Exception as e:
+                print(f"Gripper send failed: {e}")
+
+        await asyncio.sleep(GRIPPER_PERIOD)
 # ------------------------------------------- /CAN section -------------------------------------------------------
 
 async def main() -> None:
 
     async def processGamePad():
-        global goHome, motorRunCounter, goHomeStep
+        global goHome, motorRunCounter, goHomeStep, gripperPosition
         pygame.event.pump()
         for event in pygame.event.get():
             if event.type == pygame.JOYBUTTONDOWN:
@@ -489,7 +550,6 @@ async def main() -> None:
                 xPad, yPad = event.value
                 handle_dpad_x(xPad)
                 handle_dpad_y(yPad)
-
         if specialKey[0] == True and goHome == False:
             goHome = True
             goHomeStep = 2
@@ -499,21 +559,28 @@ async def main() -> None:
             pass
         else:
             for i in range(len(buffer)):
-                if buffer[i] == -1:
-                    # print(f"Buffer[{i}] = {buffer[i]}, direction = 0")
-                    rotateMotor(motorIndex=i, direction=DIRECTION_DEC, stop=False)
-                elif buffer[i] == 1:
-                    # print(f"Buffer[{i}] = {buffer[i]}, direction = 1")
-                    rotateMotor(motorIndex=i, direction=DIRECTION_INC, stop=False)
-                elif buffer[i] == 0:
-                    # if joint C_MOTOR_ID is rolling (buffer[C_MOTOR_ID] != 0, then we don't stop joint B_MOTOR_ID (buffer[B_MOTOR_ID]) from rolling.)
-                    # if joint B_MOTOR_ID is rolling (buffer[B_MOTOR_ID] != 0, then we don't stop joint C_MOTOR_ID (buffer[C_MOTOR_ID]) from rolling.)
-                    if (i == B_MOTOR_ID and buffer[C_MOTOR_ID] != 0) or (i == C_MOTOR_ID and buffer[B_MOTOR_ID] != 0):
-                        pass
+                if i < 6:
+                    if buffer[i] == -1:
+                        # print(f"Buffer[{i}] = {buffer[i]}, direction = 0")
+                        rotateMotor(motorIndex=i, direction=DIRECTION_DEC, stop=False)
+                    elif buffer[i] == 1:
+                        # print(f"Buffer[{i}] = {buffer[i]}, direction = 1")
+                        rotateMotor(motorIndex=i, direction=DIRECTION_INC, stop=False)
+                    elif buffer[i] == 0:
+                        # if joint C_MOTOR_ID is rolling (buffer[C_MOTOR_ID] != 0, then we don't stop joint B_MOTOR_ID (buffer[B_MOTOR_ID]) from rolling.)
+                        # if joint B_MOTOR_ID is rolling (buffer[B_MOTOR_ID] != 0, then we don't stop joint C_MOTOR_ID (buffer[C_MOTOR_ID]) from rolling.)
+                        if (i == B_MOTOR_ID and buffer[C_MOTOR_ID] != 0) or (i == C_MOTOR_ID and buffer[B_MOTOR_ID] != 0):
+                            pass
+                        else:
+                            rotateMotor(motorIndex=i, direction=DON_T_CARE, stop=True)
                     else:
-                        rotateMotor(motorIndex=i, direction=DON_T_CARE, stop=True)
+                        raise ValueError("Wtf?")
                 else:
-                    raise ValueError("Wtf?")
+                    #buffer[i] tang giam goc quay tay gap
+                    # Hand off gripper button state; gripperTask will drive position.
+                    # buffer[6] = -1 (close), 0 (idle), +1 (open)
+                    global gripper_dir
+                    gripper_dir = buffer[i]
             
     async def updateRobot():
         global rawAxisArr, positionQueue
@@ -526,6 +593,8 @@ async def main() -> None:
 
         buffReader = can.BufferedReader()
         notifier = can.Notifier(bus, [buffReader])
+        
+        asyncio.create_task(gripperTask(bus))
 
         delay_100ms = 0
 
