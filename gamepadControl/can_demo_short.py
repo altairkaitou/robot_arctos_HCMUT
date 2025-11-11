@@ -52,8 +52,8 @@ gripperPosition = 220
 GRIPPER_CAN_ID = 0x07
 GRIPPER_MIN = 0   # Close
 GRIPPER_MAX = 120   # Open
-GRIPPER_STEP = 5   # units per tick
-GRIPPER_PERIOD = 0.05  # seconds between ticks (~50 Hz)
+GRIPPER_STEP = 10   # units per tick
+GRIPPER_PERIOD = 0.1  # seconds between ticks (~50 Hz)
 gripper_dir = 0     # -1 closing, 0 idle, +1 opening
 # -------------------------------------------------------------------- CONTROLLER GLOBAL VARIABLES--------------------------------------------------------------------
 isStoppedBufferController = [True, True, True, True, True, True]
@@ -499,27 +499,56 @@ async def gripperTask(bus: can.interface.Bus):
     # except Exception as e:
     #     print(f"Initial gripper send failed: {e}")
 
-    limit_warning_shown = False  # Prevent spamming debug at limits
+    # limit_warning_shown = False  # Prevent spamming debug at limits
+
+    # while True:
+    #     dir_now = gripper_dir  # snapshot
+
+    #     # --- Compute new position based on direction ---
+    #     new_pos = gripperPosition
+    #     if dir_now > 0 and gripperPosition < GRIPPER_MAX:
+    #         new_pos = min(GRIPPER_MAX, gripperPosition + GRIPPER_STEP)
+    #         limit_warning_shown = False  # Reset warning when movement resumes
+    #     elif dir_now < 0 and gripperPosition > GRIPPER_MIN:
+    #         new_pos = max(GRIPPER_MIN, gripperPosition - GRIPPER_STEP)
+    #         limit_warning_shown = False
+    #     else:
+    #         # If trying to move beyond range, only print debug ONCE
+    #         if dir_now != 0 and not limit_warning_shown:
+    #             print(f"[DEBUG] Gripper limit reached at {gripperPosition}")
+    #             limit_warning_shown = True
+
+    #     # --- Send only if value actually changed ---
+    #     if new_pos != gripperPosition:
+    #         gripperPosition = new_pos
+    #         try:
+    #             bus.send(can.Message(
+    #                 arbitration_id=GRIPPER_CAN_ID,
+    #                 data=[int(gripperPosition)],
+    #                 is_extended_id=False
+    #             ))
+    #             print(f"[Gripper] Moved to: {gripperPosition}")  # Optional debug
+    #         except Exception as e:
+    #             print(f"Gripper send failed: {e}")
+    
+    last_dir = 0  # remembers previous gripper_dir
 
     while True:
-        dir_now = gripper_dir  # snapshot
+        dir_now = gripper_dir
 
-        # --- Compute new position based on direction ---
-        new_pos = gripperPosition
-        if dir_now > 0 and gripperPosition < GRIPPER_MAX:
-            new_pos = min(GRIPPER_MAX, gripperPosition + GRIPPER_STEP)
-            limit_warning_shown = False  # Reset warning when movement resumes
-        elif dir_now < 0 and gripperPosition > GRIPPER_MIN:
-            new_pos = max(GRIPPER_MIN, gripperPosition - GRIPPER_STEP)
-            limit_warning_shown = False
-        else:
-            # If trying to move beyond range, only print debug ONCE
-            if dir_now != 0 and not limit_warning_shown:
-                print(f"[DEBUG] Gripper limit reached at {gripperPosition}")
-                limit_warning_shown = True
+        # Detect direction change (including to/from neutral)
+        if dir_now != last_dir:
+            last_dir = dir_now
 
-        # --- Send only if value actually changed ---
-        if new_pos != gripperPosition:
+            if dir_now > 0:
+                new_pos = GRIPPER_MAX
+            elif dir_now < 0:
+                new_pos = GRIPPER_MIN
+            else:
+                # dir_now == 0 → don't send anything
+                await asyncio.sleep(GRIPPER_PERIOD)
+                continue
+
             gripperPosition = new_pos
             try:
                 bus.send(can.Message(
@@ -527,9 +556,9 @@ async def gripperTask(bus: can.interface.Bus):
                     data=[int(gripperPosition)],
                     is_extended_id=False
                 ))
-                print(f"[Gripper] Moved to: {gripperPosition}")  # Optional debug
+                print(f"[Gripper] Sent position {gripperPosition} (dir={dir_now})")
             except Exception as e:
-                print(f"Gripper send failed: {e}")
+                print(f"[Gripper] Send failed: {e}")
 
         await asyncio.sleep(GRIPPER_PERIOD)
 # ------------------------------------------- /CAN section -------------------------------------------------------
@@ -550,6 +579,7 @@ async def main() -> None:
                 xPad, yPad = event.value
                 handle_dpad_x(xPad)
                 handle_dpad_y(yPad)
+        print("Buffer:", buffer)
         if specialKey[0] == True and goHome == False:
             goHome = True
             goHomeStep = 2
@@ -585,7 +615,8 @@ async def main() -> None:
     async def updateRobot():
         global rawAxisArr, positionQueue
         # real bus
-        bus = can.interface.Bus(bustype='slcan', channel='COM6', bitrate=500000)
+        # bus = can.interface.Bus(bustype='slcan', channel='COM6', bitrate=500000)
+        bus = can.interface.Bus(interface="slcan", channel="COM6", bitrate=500000)
         # virtual bus
         # bus = can.interface.Bus(interface="virtual", receive_own_messages=True)  
 
@@ -613,9 +644,11 @@ async def main() -> None:
         # positionQueue.put([None, 0, 0, None, None, None])
         # positionQueue.put([0, None, 0, None, None, None])
 
-        rawData = coordinateToRawAxis( 0.18906131, -0.2039358 ,  0.293142)
-        positionQueue.put(rawData)
+        #rawData = coordinateToRawAxis( 0.18906131, -0.2039358 ,  0.293142)
+        #positionQueue.put(rawData)
         
+        
+
         try:
             while (True):
                 setJointsValue()
@@ -634,7 +667,7 @@ async def main() -> None:
                 await asyncio.sleep(DURATION)
                 processReceivedMessage(buffReader)
                 # cyclicSafety()
-                cylicCheck()
+                #cylicCheck()
         except Exception as e:
             print(f"Error: {e}")
             notifier.stop()
