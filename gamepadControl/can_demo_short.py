@@ -50,7 +50,7 @@ oldSpeed = speed
 
 gripperPosition = 220
 GRIPPER_CAN_ID = 0x07
-GRIPPER_MIN = 0   # Close
+GRIPPER_MIN = 40   # Close
 GRIPPER_MAX = 120   # Open
 GRIPPER_STEP = 10   # units per tick
 GRIPPER_PERIOD = 0.1  # seconds between ticks (~50 Hz)
