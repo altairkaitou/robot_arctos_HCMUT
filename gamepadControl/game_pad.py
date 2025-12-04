@@ -34,6 +34,10 @@ buffer = [0, 0, 0, 0, 0, 0, 0]
 specialKey = [False, False, False, False]
 newValue = False
 
+color_mode_enabled = False
+selected_color = "RED"
+color_list = ["RED", "BLUE", "YELLOW"]
+color_index = 0
 
 def printDebugInput(data):
     if DEBUG:
@@ -49,7 +53,7 @@ def handle_button_release(button, buffer, specialKey):
     elif button == 2:
         printDebugInput("Button ▢ released")
         specialKey[button] = False
-        buffer[6] = 0
+        #buffer[6] = 0
     elif button == 3:
         printDebugInput("Button △ released")
         specialKey[button] = False
@@ -127,22 +131,30 @@ def handle_axis_motion(axis, value, buffer):
         handle_dpad_y(value)
 
 def handle_button_press(button, buffer, specialKey):
-    global debounce
-    if button == 0:
+    global debounce, color_mode_enabled, selected_color, color_index
+    if button == 0 and color_mode_enabled:
         printDebugInput("Button X pressed")
-        specialKey[button] = True
+        #specialKey[button] = True
+        color_index = (color_index + 1) % len(color_list)
+        selected_color = color_list[color_index]
+        print("Target Color changed to:", selected_color)
     elif button == 1:
         printDebugInput("Button O pressed. Stop all motors")
-        buffer = [0, 0, 0, 0, 0, 0]
+        #buffer = [0, 0, 0, 0, 0, 0]
         specialKey[button] = True
     elif button == 2:
         printDebugInput("Button ▢ pressed")
         specialKey[button] = True
-        buffer[6] = 1
+        #buffer[6] = 1
+        color_mode_enabled = not color_mode_enabled
+        if color_mode_enabled:
+            print("Color Detection Mode: ON (Target =", selected_color, ")")
+        else:
+            print("Color Detection Mode: OFF")
     elif button == 3:
         printDebugInput("Button △ pressed")
         specialKey[button] = True
-        buffer[6] = -1
+        buffer[6] = 1
     elif button == 6:
         printDebugInput("Left bumper pressed")
     elif button == 7:

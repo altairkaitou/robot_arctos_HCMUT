@@ -18,7 +18,6 @@ import numpy as np
 import ikpy.utils.plot as plot_utils
 
 
-
 # the exact encoded value read from encoder
 rawAxisArr = [0, 0, 0, 0, 0, 0]
 # specify the direction that motor at index i must not rotate further.
@@ -48,13 +47,13 @@ axisChangedCommon = False
 speed = 20
 oldSpeed = speed
 
-gripperPosition = 220
 GRIPPER_CAN_ID = 0x07
 GRIPPER_MIN = 40   # Close
 GRIPPER_MAX = 120   # Open
 GRIPPER_STEP = 10   # units per tick
 GRIPPER_PERIOD = 0.1  # seconds between ticks (~50 Hz)
-gripper_dir = 0     # -1 closing, 0 idle, +1 opening
+gripper_dir = 0     # 0 idle, 1 move
+gripperVector = 1
 # -------------------------------------------------------------------- CONTROLLER GLOBAL VARIABLES--------------------------------------------------------------------
 isStoppedBufferController = [True, True, True, True, True, True]
 
@@ -486,77 +485,56 @@ async def gripperTask(bus: can.interface.Bus):
     - Sends a CAN frame only when the position actually changes
     - Prints a debug message ONCE when limit reached
     """
-    global gripper_dir, gripperPosition
-
-    # Send initial gripper position once
-    # try:
-    #     bus.send(can.Message(
-    #         arbitration_id=GRIPPER_CAN_ID,
-    #         data=[int(gripperPosition)],
-    #         is_extended_id=False
-    #     ))
-    #     print(f"[Gripper Init] Sent initial position: {gripperPosition}")
-    # except Exception as e:
-    #     print(f"Initial gripper send failed: {e}")
-
-    # limit_warning_shown = False  # Prevent spamming debug at limits
-
-    # while True:
-    #     dir_now = gripper_dir  # snapshot
-
-    #     # --- Compute new position based on direction ---
-    #     new_pos = gripperPosition
-    #     if dir_now > 0 and gripperPosition < GRIPPER_MAX:
-    #         new_pos = min(GRIPPER_MAX, gripperPosition + GRIPPER_STEP)
-    #         limit_warning_shown = False  # Reset warning when movement resumes
-    #     elif dir_now < 0 and gripperPosition > GRIPPER_MIN:
-    #         new_pos = max(GRIPPER_MIN, gripperPosition - GRIPPER_STEP)
-    #         limit_warning_shown = False
-    #     else:
-    #         # If trying to move beyond range, only print debug ONCE
-    #         if dir_now != 0 and not limit_warning_shown:
-    #             print(f"[DEBUG] Gripper limit reached at {gripperPosition}")
-    #             limit_warning_shown = True
-
-    #     # --- Send only if value actually changed ---
-    #     if new_pos != gripperPosition:
-    #         gripperPosition = new_pos
-    #         try:
-    #             bus.send(can.Message(
-    #                 arbitration_id=GRIPPER_CAN_ID,
-    #                 data=[int(gripperPosition)],
-    #                 is_extended_id=False
-    #             ))
-    #             print(f"[Gripper] Moved to: {gripperPosition}")  # Optional debug
-    #         except Exception as e:
-    #             print(f"Gripper send failed: {e}")
+    global gripper_dir, gripperVector
+    import game_pad
+    import CameraColor
     
     last_dir = 0  # remembers previous gripper_dir
 
     while True:
         dir_now = gripper_dir
 
+        # ──────────────────────────────────────────────
+        # COLOR MODE ACTIVE
+        # ──────────────────────────────────────────────
+        if not game_pad.color_mode_enabled:
+            CameraColor.stop_stream()
+        if game_pad.color_mode_enabled:
+            # if not CameraColor.checkConnection():
+            #     print("[AI] Camera offline → blocking gripper")
+            #     dir_now = 0
+            #     await asyncio.sleep(GRIPPER_PERIOD)
+            #     continue
+            
+            CameraColor.start_stream()
+            detected, cx, cy = await CameraColor.detect_target_color(game_pad.selected_color)
+
+            if not detected:
+                #print(f"[AI] {game_pad.selected_color} NOT detected → blocking gripper")
+                await asyncio.sleep(GRIPPER_PERIOD)
+                continue
+            #print(f"[AI] {game_pad.selected_color} detected → gripper allowed")
+        
         # Detect direction change (including to/from neutral)
         if dir_now != last_dir:
             last_dir = dir_now
-
-            if dir_now > 0:
+            if (dir_now == 1): gripperVector *= -1
+            print(gripperVector, dir_now)
+            if gripperVector > 0 and dir_now > 0:
                 new_pos = GRIPPER_MAX
-            elif dir_now < 0:
+            elif gripperVector < 0 and dir_now > 0:
                 new_pos = GRIPPER_MIN
             else:
                 # dir_now == 0 → don't send anything
                 await asyncio.sleep(GRIPPER_PERIOD)
                 continue
-
-            gripperPosition = new_pos
             try:
                 bus.send(can.Message(
                     arbitration_id=GRIPPER_CAN_ID,
-                    data=[int(gripperPosition)],
+                    data=[int(new_pos)],
                     is_extended_id=False
                 ))
-                print(f"[Gripper] Sent position {gripperPosition} (dir={dir_now})")
+                print(f"[Gripper] Sent position {new_pos} (dir={dir_now})")
             except Exception as e:
                 print(f"[Gripper] Send failed: {e}")
 
@@ -566,7 +544,7 @@ async def gripperTask(bus: can.interface.Bus):
 async def main() -> None:
 
     async def processGamePad():
-        global goHome, motorRunCounter, goHomeStep, gripperPosition
+        global goHome, motorRunCounter, goHomeStep
         pygame.event.pump()
         for event in pygame.event.get():
             if event.type == pygame.JOYBUTTONDOWN:
@@ -579,7 +557,7 @@ async def main() -> None:
                 xPad, yPad = event.value
                 handle_dpad_x(xPad)
                 handle_dpad_y(yPad)
-        print("Buffer:", buffer)
+        #print("Buffer:", buffer)
         if specialKey[0] == True and goHome == False:
             goHome = True
             goHomeStep = 2
