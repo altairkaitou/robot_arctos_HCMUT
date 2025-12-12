@@ -57,6 +57,10 @@ gripperVector = 1
 # -------------------------------------------------------------------- CONTROLLER GLOBAL VARIABLES--------------------------------------------------------------------
 isStoppedBufferController = [True, True, True, True, True, True]
 
+face_tracking_active = False # Toggle this with a button (e.g., L1/LB)
+face_error_x = 0
+face_error_y = 0
+FACE_DEADZONE = 40
 
 interfaces = ni.interfaces()
 interface = None
@@ -548,6 +552,15 @@ async def main() -> None:
         pygame.event.pump()
         for event in pygame.event.get():
             if event.type == pygame.JOYBUTTONDOWN:
+                # --- TOGGLE FACE TRACKING ---
+                if event.button == 4: # L1 / Left Bumper
+                    face_tracking_active = not face_tracking_active
+                    print(f"Face Tracking Active: {face_tracking_active}")
+                    # Reset speeds to normal when turning off
+                    if not face_tracking_active:
+                         speedConfig[0] = 50
+                         speedConfig[2] = 100
+                
                 handle_button_press(event.button, buffer, specialKey)
             if event.type == pygame.JOYBUTTONUP:
                 handle_button_release(event.button, buffer, specialKey)
@@ -558,7 +571,10 @@ async def main() -> None:
                 handle_dpad_x(xPad)
                 handle_dpad_y(yPad)
         #print("Buffer:", buffer)
-        if specialKey[0] == True and goHome == False:
+        if face_tracking_active:
+             # IGNORE Joystick, Use Face Data
+             process_face_tracking()
+        elif specialKey[0] == True and goHome == False:
             goHome = True
             goHomeStep = 2
         elif goHome == True or positionMove == True:
@@ -594,7 +610,7 @@ async def main() -> None:
         global rawAxisArr, positionQueue
         # real bus
         # bus = can.interface.Bus(bustype='slcan', channel='COM6', bitrate=500000)
-        bus = can.interface.Bus(interface="slcan", channel="COM6", bitrate=500000)
+        bus = can.interface.Bus(interface="slcan", channel="/dev/tty.usbmodem208738664D4D1", bitrate=500000)
         # virtual bus
         # bus = can.interface.Bus(interface="virtual", receive_own_messages=True)  
 
@@ -602,7 +618,8 @@ async def main() -> None:
 
         buffReader = can.BufferedReader()
         notifier = can.Notifier(bus, [buffReader])
-        
+
+        asyncio.create_task(face_tracker_listener())
         asyncio.create_task(gripperTask(bus))
 
         delay_100ms = 0
@@ -654,6 +671,80 @@ async def main() -> None:
         
     await asyncio.gather(updateRobot())
 
+def process_face_tracking():
+    global face_error_x, face_error_y, FACE_DEADZONE, speedConfig
+
+    # --- CONTROL X AXIS (Motor 0 - Base) ---
+    # Logic: If Face is to the Right (Positive Error) -> Rotate Base Right
+    if abs(face_error_x) > FACE_DEADZONE:
+        # Use a slow tracking speed (e.g. 30)
+        speedConfig[0] = 30 
+        
+        if face_error_x > 0:
+            # Face is Right -> Rotate INC
+            rotateMotor(motorIndex=0, direction=DIRECTION_INC, stop=False)
+        else:
+            # Face is Left -> Rotate DEC
+            rotateMotor(motorIndex=0, direction=DIRECTION_DEC, stop=False)
+    else:
+        # Inside Deadzone -> Stop
+        rotateMotor(motorIndex=0, direction=DON_T_CARE, stop=True)
+
+    # --- CONTROL Y AXIS (Motor 2 - Elbow) ---
+    # NOTE: Depending on how you mount the phone, Y Error might need to move Motor 1 or Motor 2.
+    # Let's assume Motor 2 (Elbow) for looking up/down.
+    target_motor = 2 
+    
+    if abs(face_error_y) > FACE_DEADZONE:
+        speedConfig[target_motor] = 20 # Slower for up/down
+        
+        # Check your robot's physical direction! 
+        # Usually: Face Up (Negative Y on screen) -> Robot Up
+        if face_error_y < 0:
+             rotateMotor(motorIndex=target_motor, direction=DIRECTION_INC, stop=False)
+        else:
+             rotateMotor(motorIndex=target_motor, direction=DIRECTION_DEC, stop=False)
+    else:
+        rotateMotor(motorIndex=target_motor, direction=DON_T_CARE, stop=True)
+
+async def face_tracker_listener():
+    global face_error_x, face_error_y
+    HOST = '127.0.0.1'
+    PORT = 6000
+    
+    print(f"Attempting to connect to Phone on {HOST}:{PORT}...")
+    while True:
+        try:
+            reader, writer = await asyncio.open_connection(HOST, PORT)
+            print("Connected to Phone Face Tracker!")
+            
+            while True:
+                # FIX: Use readline() to ensure we get exactly one "X,Y" packet
+                line = await reader.readline()
+                if not line:
+                    break
+                
+                # Decode "X,Y\n" -> "X,Y"
+                message = line.decode().strip()
+                
+                # Check if message is empty (sometimes happens with keepalives)
+                if not message:
+                    continue
+
+                try:
+                    parts = message.split(',')
+                    if len(parts) == 2:
+                        face_error_x = float(parts[0])
+                        face_error_y = float(parts[1])
+                        # Optional: Print only every 50th frame to avoid spam
+                        # print(f"Face Error: X={face_error_x}, Y={face_error_y}")
+                except ValueError:
+                    print(f"Data Error: {message}")
+                    pass
+                
+        except Exception as e:
+            print("Waiting for phone connection...")
+            await asyncio.sleep(2) # Retry every 2 seconds
 
 if __name__ == "__main__":
     try:
