@@ -548,12 +548,13 @@ async def gripperTask(bus: can.interface.Bus):
 async def main() -> None:
 
     async def processGamePad():
-        global goHome, motorRunCounter, goHomeStep
+        global goHome, motorRunCounter, goHomeStep, face_tracking_active
         pygame.event.pump()
         for event in pygame.event.get():
             if event.type == pygame.JOYBUTTONDOWN:
+                print(f"DEBUG: You pressed Button {event.button}")
                 # --- TOGGLE FACE TRACKING ---
-                if event.button == 4: # L1 / Left Bumper
+                if event.button == 9: # L1 / Left Bumper
                     face_tracking_active = not face_tracking_active
                     print(f"Face Tracking Active: {face_tracking_active}")
                     # Reset speeds to normal when turning off
@@ -678,7 +679,7 @@ def process_face_tracking():
     # Logic: If Face is to the Right (Positive Error) -> Rotate Base Right
     if abs(face_error_x) > FACE_DEADZONE:
         # Use a slow tracking speed (e.g. 30)
-        speedConfig[0] = 30 
+        speedConfig[0] = 15 
         
         if face_error_x > 0:
             # Face is Right -> Rotate INC
@@ -696,14 +697,14 @@ def process_face_tracking():
     target_motor = 2 
     
     if abs(face_error_y) > FACE_DEADZONE:
-        speedConfig[target_motor] = 20 # Slower for up/down
+        speedConfig[target_motor] = 40 # Slower for up/down
         
         # Check your robot's physical direction! 
         # Usually: Face Up (Negative Y on screen) -> Robot Up
         if face_error_y < 0:
-             rotateMotor(motorIndex=target_motor, direction=DIRECTION_INC, stop=False)
-        else:
              rotateMotor(motorIndex=target_motor, direction=DIRECTION_DEC, stop=False)
+        else:
+             rotateMotor(motorIndex=target_motor, direction=DIRECTION_INC, stop=False)
     else:
         rotateMotor(motorIndex=target_motor, direction=DON_T_CARE, stop=True)
 
