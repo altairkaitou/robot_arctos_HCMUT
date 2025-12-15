@@ -677,7 +677,7 @@ def process_face_tracking():
 
     # --- CONTROL X AXIS (Motor 0 - Base) ---
     # Logic: If Face is to the Right (Positive Error) -> Rotate Base Right
-    if abs(face_error_x) > FACE_DEADZONE:
+    if abs(face_error_x) != 0:
         # Use a slow tracking speed (e.g. 30)
         speedConfig[0] = 15 
         
@@ -696,7 +696,7 @@ def process_face_tracking():
     # Let's assume Motor 2 (Elbow) for looking up/down.
     target_motor = 2 
     
-    if abs(face_error_y) > FACE_DEADZONE:
+    if abs(face_error_y) != 0 :
         speedConfig[target_motor] = 40 # Slower for up/down
         
         # Check your robot's physical direction! 
