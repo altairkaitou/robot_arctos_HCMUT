@@ -60,6 +60,7 @@ isStoppedBufferController = [True, True, True, True, True, True]
 face_tracking_active = False # Toggle this with a button (e.g., L1/LB)
 face_error_x = 0
 face_error_y = 0
+z_error = 0
 FACE_DEADZONE = 40
 
 interfaces = ni.interfaces()
@@ -673,34 +674,28 @@ async def main() -> None:
     await asyncio.gather(updateRobot())
 
 def process_face_tracking():
-    global face_error_x, face_error_y, FACE_DEADZONE, speedConfig
+    # Make sure to include z_error in the global list
+    global face_error_x, face_error_y, z_error, FACE_DEADZONE, speedConfig
 
-    # --- CONTROL X AXIS (Motor 0 - Base) ---
-    # Logic: If Face is to the Right (Positive Error) -> Rotate Base Right
+    # ====================================================
+    # 1. CONTROL X AXIS (Motor 0 - Base) - Left/Right
+    # ====================================================
     if abs(face_error_x) != 0:
-        # Use a slow tracking speed (e.g. 30)
         speedConfig[0] = 15 
-        
         if face_error_x > 0:
-            # Face is Right -> Rotate INC
             rotateMotor(motorIndex=0, direction=DIRECTION_INC, stop=False)
         else:
-            # Face is Left -> Rotate DEC
             rotateMotor(motorIndex=0, direction=DIRECTION_DEC, stop=False)
     else:
-        # Inside Deadzone -> Stop
         rotateMotor(motorIndex=0, direction=DON_T_CARE, stop=True)
 
-    # --- CONTROL Y AXIS (Motor 2 - Elbow) ---
-    # NOTE: Depending on how you mount the phone, Y Error might need to move Motor 1 or Motor 2.
-    # Let's assume Motor 2 (Elbow) for looking up/down.
+    # ====================================================
+    # 2. CONTROL Y AXIS (Motor 2 - Elbow) - Up/Down
+    # ====================================================
     target_motor = 2 
-    
     if abs(face_error_y) != 0 :
-        speedConfig[target_motor] = 40 # Slower for up/down
+        speedConfig[target_motor] = 40 
         
-        # Check your robot's physical direction! 
-        # Usually: Face Up (Negative Y on screen) -> Robot Up
         if face_error_y < 0:
              rotateMotor(motorIndex=target_motor, direction=DIRECTION_DEC, stop=False)
         else:
@@ -708,8 +703,27 @@ def process_face_tracking():
     else:
         rotateMotor(motorIndex=target_motor, direction=DON_T_CARE, stop=True)
 
+    # ====================================================
+    # 3. CONTROL Z AXIS (Motor 1) - Forward/Backward
+    # ====================================================
+    target_z_motor = 1
+    
+    # Check if z_error is commanding a move (1.0 or -1.0)
+    if z_error != 0:
+        speedConfig[target_z_motor] = 25 # Set a moderate speed for safety
+        
+        if z_error > 0:
+            # Phone sent 1.0 -> Object is Too Small -> MOVE FORWARD
+            # NOTE: Verify if INC moves your robot Forward physically!
+            rotateMotor(motorIndex=target_z_motor, direction=DIRECTION_DEC, stop=False)
+        else:
+            # Phone sent -1.0 -> Object is Too Big -> MOVE BACKWARD
+            rotateMotor(motorIndex=target_z_motor, direction=DIRECTION_INC, stop=False)
+    else:
+        # Phone sent 0.0 -> Stop
+        rotateMotor(motorIndex=target_z_motor, direction=DON_T_CARE, stop=True)
 async def face_tracker_listener():
-    global face_error_x, face_error_y
+    global face_error_x, face_error_y, z_error
     HOST = '127.0.0.1'
     PORT = 6000
     
@@ -734,17 +748,25 @@ async def face_tracker_listener():
 
                 try:
                     parts = message.split(',')
-                    if len(parts) == 2:
+                    if len(parts) == 3:
                         face_error_x = float(parts[0])
                         face_error_y = float(parts[1])
+                        z_error = float(parts[2])
                         # Optional: Print only every 50th frame to avoid spam
                         # print(f"Face Error: X={face_error_x}, Y={face_error_y}")
+                    elif len(parts) == 2:
+                        face_error_x = float(parts[0])
+                        face_error_y = float(parts[1])
+                        z_error = 0.0
                 except ValueError:
                     print(f"Data Error: {message}")
                     pass
                 
         except Exception as e:
             print("Waiting for phone connection...")
+            face_error_x = 0
+            face_error_y = 0
+            z_error = 0
             await asyncio.sleep(2) # Retry every 2 seconds
 
 if __name__ == "__main__":
