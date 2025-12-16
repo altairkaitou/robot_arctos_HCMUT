@@ -17,7 +17,12 @@ import ikpy.chain
 import numpy as np
 import ikpy.utils.plot as plot_utils
 
-
+#pip install python-can
+#pip install pygame
+#pip install serial
+#pip install netifaces
+#pip install ikpy
+#pip install py-serial
 # the exact encoded value read from encoder
 rawAxisArr = [0, 0, 0, 0, 0, 0]
 # specify the direction that motor at index i must not rotate further.
@@ -38,7 +43,7 @@ motorBusy = { i : {"busy": False, "rotating": False, "timeWaitedAck": 0} for i i
 # speed configration for each motor. the maximum speed should not greater than 1000.
 speedConfig = [50, 150, 100, 80, 150, 150]
 # accelaration config for each motor. faster the accelaration, the faster motor reaching its specified speed above. max acceleration is 254
-accelerationConfig = [60, 60, 60, 60, 60, 60]
+accelerationConfig = [10, 60, 60, 60, 60, 60]
 # a queue to hold the command that will be sent to Canable.
 commandQueue = Queue(maxsize=20)
 # Axis has changed since the last update
@@ -494,9 +499,7 @@ async def gripperTask(bus: can.interface.Bus):
     while True:
         dir_now = gripper_dir
 
-        # ──────────────────────────────────────────────
         # COLOR MODE ACTIVE
-        # ──────────────────────────────────────────────
         if not game_pad.color_mode_enabled:
             CameraColor.stop_stream()
         if game_pad.color_mode_enabled:
@@ -510,16 +513,16 @@ async def gripperTask(bus: can.interface.Bus):
             detected, cx, cy = await CameraColor.detect_target_color(game_pad.selected_color)
 
             if not detected:
-                #print(f"[AI] {game_pad.selected_color} NOT detected → blocking gripper")
+                print(f"[AI] {game_pad.selected_color} NOT detected → blocking gripper")
                 await asyncio.sleep(GRIPPER_PERIOD)
                 continue
-            #print(f"[AI] {game_pad.selected_color} detected → gripper allowed")
+            print(f"[AI] {game_pad.selected_color} detected → gripper allowed")
         
         # Detect direction change (including to/from neutral)
         if dir_now != last_dir:
             last_dir = dir_now
             if (dir_now == 1): gripperVector *= -1
-            print(gripperVector, dir_now)
+            #print(gripperVector, dir_now)
             if gripperVector > 0 and dir_now > 0:
                 new_pos = GRIPPER_MAX
             elif gripperVector < 0 and dir_now > 0:
