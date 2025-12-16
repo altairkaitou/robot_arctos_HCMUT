@@ -710,7 +710,7 @@ def process_face_tracking():
     
     # Check if z_error is commanding a move (1.0 or -1.0)
     if z_error != 0:
-        speedConfig[target_z_motor] = 25 # Set a moderate speed for safety
+        speedConfig[target_z_motor] = 40 # Set a moderate speed for safety
         
         if z_error > 0:
             # Phone sent 1.0 -> Object is Too Small -> MOVE FORWARD
