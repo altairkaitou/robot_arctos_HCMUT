@@ -484,11 +484,8 @@ def setJointsValue():
 async def gripperTask(bus: can.interface.Bus):
     """
     Drives the gripper position while a button is held.
-    - Moves toward GRIPPER_MAX when gripper_dir = +1
-    - Moves toward GRIPPER_MIN when gripper_dir = -1
-    - Sends nothing when gripper_dir = 0
+    - Moves toward either GRIPPER_MAX GRIPPER_MIN when button is pressed down.
     - Sends a CAN frame only when the position actually changes
-    - Prints a debug message ONCE when limit reached
     """
     global gripper_dir, gripperVector
     import game_pad
